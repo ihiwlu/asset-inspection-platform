@@ -221,30 +221,10 @@ python -m uvicorn app.main:app --reload
 - 小规模本地演示可以使用默认值。
 - 资产较多时不要盲目调太高，避免对本机和网络造成过大压力。
 
-## 项目截图位置
-
-建议将截图放在：
-
-```text
-docs/images/
-```
-
-推荐截图文件：
-
-```text
-docs/images/dashboard.png
-docs/images/assets-filter.png
-docs/images/scan-progress.png
-docs/images/scan-results.png
-```
-
-README 中可按下面方式引用：
+## 项目截图
 
 ```markdown
 ![首页](docs/images/dashboard.png)
-![资产筛选](docs/images/assets-filter.png)
-![扫描进度](docs/images/scan-progress.png)
-![扫描结果](docs/images/scan-results.png)
 ```
 
 ## 后续优化方向
