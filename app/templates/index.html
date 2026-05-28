@@ -1,0 +1,565 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if message %}
+<section class="card">
+    <strong>{{ message }}</strong>
+</section>
+{% endif %}
+
+{% if error %}
+<section class="card">
+    <strong>{{ error }}</strong>
+</section>
+{% endif %}
+
+<section class="card">
+    <h2>批量添加资产 IP</h2>
+    <p class="hint">支持一行一个 IP，也支持简单范围，例如：192.168.1.10-20</p>
+    <form action="/assets/batch" method="post">
+        <textarea name="ip_text" rows="5" style="width: 100%; box-sizing: border-box;" placeholder="192.168.1.10&#10;192.168.1.11&#10;192.168.1.20-30"></textarea>
+        <p>
+            <button type="submit">批量添加</button>
+        </p>
+    </form>
+</section>
+
+<section class="card">
+    <h2>资产列表</h2>
+    <div class="form-row">
+        <input type="text" id="filter-id" placeholder="ID：3 或 1-10">
+        <input type="text" id="filter-ip" placeholder="IP：192.168.1 / 192.168.1.10 / 192.168.1.0/24">
+        <input type="datetime-local" id="filter-created-start" title="创建时间开始">
+        <input type="datetime-local" id="filter-created-end" title="创建时间结束">
+    </div>
+    <p class="hint">ID 支持精确值和范围；IP 支持精确、前缀和 CIDR 网段；创建时间支持开始和结束范围。</p>
+    <p>
+        <button type="button" id="select-visible-assets">全选筛选结果</button>
+        <button type="button" id="unselect-visible-assets">全不选筛选结果</button>
+        <button type="button" id="clear-asset-filters">清除筛选条件</button>
+    </p>
+    <form action="/scan-selected" method="post" id="scan-selected-form" class="form-row">
+        <input type="hidden" name="selected_asset_ids" id="selected-asset-ids">
+        <input type="text" name="ports" placeholder="{{ default_ports_text }}">
+        <button type="submit">扫描已选资产</button>
+        <button type="button" id="delete-selected-assets">删除已选资产</button>
+    </form>
+    <p class="hint">先筛选并勾选资产，再输入端口扫描；端口为空时默认扫描：{{ default_ports_text }}</p>
+    <div id="scan-progress-box" style="display: none;">
+        <p id="scan-progress-text" class="hint">扫描准备中...</p>
+        <div style="height: 18px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
+            <div id="scan-progress-bar" style="width: 0%; height: 100%; background: #0f766e;"></div>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>选择</th>
+                <th>ID</th>
+                <th>IP 地址</th>
+                <th>创建时间</th>
+                <th>扫描端口</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asset in assets %}
+            <tr id="asset-row-{{ asset.id }}" class="asset-row" data-id="{{ asset.id }}" data-ip="{{ asset.ip_address }}" data-created="{{ asset.created_at }}">
+                <td>
+                    <input type="checkbox" class="asset-checkbox" value="{{ asset.id }}">
+                </td>
+                <td>{{ asset.id }}</td>
+                <td>{{ asset.ip_address }}</td>
+                <td>{{ asset.created_at }}</td>
+                <td>
+                    <form action="/assets/{{ asset.id }}/scan" method="post" class="form-row single-scan-form" data-asset-id="{{ asset.id }}">
+                        <input type="text" name="ports" placeholder="{{ default_ports_text }}">
+                        <button type="submit">扫描</button>
+                    </form>
+                </td>
+                <td>
+                    <form action="/assets/{{ asset.id }}/delete" method="post" class="delete-asset-form" data-asset-id="{{ asset.id }}">
+                        <button type="submit">删除</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" class="empty">暂无资产，请先添加一个 IP。</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="card">
+    <h2>扫描结果</h2>
+    <div class="form-row">
+        <input type="text" id="filter-result-id" placeholder="结果 ID：3 或 1-10">
+        <input type="text" id="filter-result-ip" placeholder="IP：192.168.1 / 192.168.1.0/24">
+        <input type="text" id="filter-result-port" placeholder="端口：80 或 20-100">
+    </div>
+    <div class="form-row">
+        <input type="text" id="filter-result-service" placeholder="服务：HTTP / MySQL">
+        <select id="filter-result-status">
+            <option value="">全部状态</option>
+            <option value="open">open</option>
+            <option value="closed">closed</option>
+        </select>
+        <input type="datetime-local" id="filter-result-time-start" title="扫描时间开始">
+        <input type="datetime-local" id="filter-result-time-end" title="扫描时间结束">
+    </div>
+    <p class="hint">结果 ID 和端口支持精确值/范围；IP 支持精确、前缀和 CIDR；服务支持文本匹配；时间支持范围。</p>
+    <p>
+        <button type="button" id="clear-result-filters">清除结果筛选</button>
+    </p>
+    <form action="/scan-results/clear" method="post">
+        <button type="submit">清空历史记录</button>
+    </form>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>IP 地址</th>
+                <th>端口</th>
+                <th>服务</th>
+                <th>状态</th>
+                <th>扫描时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for result in results %}
+            <tr class="result-row" data-asset-id="{{ result.asset_id }}" data-id="{{ result.id }}" data-ip="{{ result.ip_address }}" data-port="{{ result.port }}" data-service="{{ result.service_name }}" data-status="{{ result.status }}" data-scanned="{{ result.scanned_at }}">
+                <td>{{ result.id }}</td>
+                <td>{{ result.ip_address }}</td>
+                <td>{{ result.port }}</td>
+                <td>{{ result.service_name }}</td>
+                <td>
+                    <span class="badge {{ result.status }}">{{ result.status }}</span>
+                </td>
+                <td>{{ result.scanned_at }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" class="empty">暂无扫描结果。</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<script>
+    // 删除、扫描等操作会通过 ?message=... 或 ?error=... 显示一次提示。
+    // 页面加载后清理地址栏参数，避免刷新页面时旧提示反复出现。
+    if (window.location.search.includes("message=") || window.location.search.includes("error=")) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    document.querySelectorAll(".delete-asset-form").forEach(function (form) {
+        form.addEventListener("submit", async function (event) {
+            event.preventDefault();
+
+            if (!confirm("确定要删除这个资产吗？关联扫描结果也会一起删除。")) {
+                return;
+            }
+
+            const response = await fetch(form.action, {
+                method: "POST",
+                headers: {
+                    "X-Requested-With": "fetch"
+                }
+            });
+            const data = await response.json();
+
+            if (!data.ok) {
+                alert(data.message || "删除失败");
+                return;
+            }
+
+            const assetId = form.dataset.assetId;
+            const assetRow = document.querySelector("#asset-row-" + assetId);
+            if (assetRow) {
+                assetRow.remove();
+            }
+
+            document.querySelectorAll('tr[data-asset-id="' + assetId + '"]').forEach(function (row) {
+                row.remove();
+            });
+        });
+    });
+
+    const filterIdInput = document.querySelector("#filter-id");
+    const filterIpInput = document.querySelector("#filter-ip");
+    const filterCreatedStartInput = document.querySelector("#filter-created-start");
+    const filterCreatedEndInput = document.querySelector("#filter-created-end");
+    const resultIdInput = document.querySelector("#filter-result-id");
+    const resultIpInput = document.querySelector("#filter-result-ip");
+    const resultPortInput = document.querySelector("#filter-result-port");
+    const resultServiceInput = document.querySelector("#filter-result-service");
+    const resultStatusInput = document.querySelector("#filter-result-status");
+    const resultTimeStartInput = document.querySelector("#filter-result-time-start");
+    const resultTimeEndInput = document.querySelector("#filter-result-time-end");
+
+    function getVisibleAssetRows() {
+        return Array.from(document.querySelectorAll(".asset-row")).filter(function (row) {
+            return row.style.display !== "none";
+        });
+    }
+
+    function filterAssetRows() {
+        const idText = filterIdInput.value.trim();
+        const ipText = filterIpInput.value.trim();
+        const createdStartText = filterCreatedStartInput.value;
+        const createdEndText = filterCreatedEndInput.value;
+
+        document.querySelectorAll(".asset-row").forEach(function (row) {
+            const rowId = Number(row.dataset.id);
+            const rowIp = row.dataset.ip;
+            const rowCreated = parseDateText(row.dataset.created);
+
+            const matchId = matchIdFilter(rowId, idText);
+            const matchIp = matchIpFilter(rowIp, ipText);
+            const matchCreated = matchCreatedFilter(rowCreated, createdStartText, createdEndText);
+
+            row.style.display = matchId && matchIp && matchCreated ? "" : "none";
+        });
+    }
+
+    function matchIdFilter(rowId, idText) {
+        if (!idText) {
+            return true;
+        }
+
+        if (idText.includes("-")) {
+            const parts = idText.split("-");
+            const start = Number(parts[0].trim());
+            const end = Number(parts[1].trim());
+            if (!Number.isInteger(start) || !Number.isInteger(end)) {
+                return false;
+            }
+            return rowId >= Math.min(start, end) && rowId <= Math.max(start, end);
+        }
+
+        const targetId = Number(idText);
+        if (!Number.isInteger(targetId)) {
+            return false;
+        }
+        return rowId === targetId;
+    }
+
+    function matchNumberFilter(rowNumber, filterText) {
+        return matchIdFilter(rowNumber, filterText);
+    }
+
+    function matchIpFilter(rowIp, ipText) {
+        if (!ipText) {
+            return true;
+        }
+
+        if (ipText.includes("/")) {
+            return isIpInCidr(rowIp, ipText);
+        }
+
+        if (isIpv4(ipText)) {
+            return rowIp === ipText;
+        }
+
+        return rowIp.startsWith(ipText);
+    }
+
+    function matchCreatedFilter(rowCreated, startText, endText) {
+        if (!startText && !endText) {
+            return true;
+        }
+        if (!rowCreated) {
+            return false;
+        }
+
+        const startDate = startText ? new Date(startText) : null;
+        const endDate = endText ? new Date(endText) : null;
+
+        if (startDate && rowCreated < startDate) {
+            return false;
+        }
+        if (endDate && rowCreated > endDate) {
+            return false;
+        }
+        return true;
+    }
+
+    function parseDateText(dateText) {
+        if (!dateText) {
+            return null;
+        }
+
+        // SQLite 常见格式类似 2026-05-28 15:36:00，浏览器 Date 更喜欢 T 分隔。
+        const normalized = dateText.replace(" ", "T");
+        const parsed = new Date(normalized);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    function isIpv4(ipText) {
+        return ipToNumber(ipText) !== null;
+    }
+
+    function isIpInCidr(rowIp, cidrText) {
+        const parts = cidrText.split("/");
+        if (parts.length !== 2) {
+            return false;
+        }
+
+        const networkNumber = ipToNumber(parts[0].trim());
+        const rowNumber = ipToNumber(rowIp);
+        const prefixLength = Number(parts[1].trim());
+
+        if (networkNumber === null || rowNumber === null) {
+            return false;
+        }
+        if (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 32) {
+            return false;
+        }
+
+        const mask = prefixLength === 0 ? 0 : (0xffffffff << (32 - prefixLength)) >>> 0;
+        return (networkNumber & mask) === (rowNumber & mask);
+    }
+
+    function ipToNumber(ipText) {
+        const parts = ipText.split(".");
+        if (parts.length !== 4) {
+            return null;
+        }
+
+        let number = 0;
+        for (const part of parts) {
+            if (!/^\d+$/.test(part)) {
+                return null;
+            }
+
+            const value = Number(part);
+            if (value < 0 || value > 255) {
+                return null;
+            }
+
+            number = (number << 8) + value;
+        }
+
+        return number >>> 0;
+    }
+
+    [filterIdInput, filterIpInput, filterCreatedStartInput, filterCreatedEndInput].forEach(function (input) {
+        input.addEventListener("input", filterAssetRows);
+    });
+
+    function filterResultRows() {
+        const idText = resultIdInput.value.trim();
+        const ipText = resultIpInput.value.trim();
+        const portText = resultPortInput.value.trim();
+        const serviceText = resultServiceInput.value.trim().toLowerCase();
+        const statusText = resultStatusInput.value;
+        const startText = resultTimeStartInput.value;
+        const endText = resultTimeEndInput.value;
+
+        document.querySelectorAll(".result-row").forEach(function (row) {
+            const rowId = Number(row.dataset.id);
+            const rowIp = row.dataset.ip;
+            const rowPort = Number(row.dataset.port);
+            const rowService = (row.dataset.service || "").toLowerCase();
+            const rowStatus = row.dataset.status;
+            const rowScanned = parseDateText(row.dataset.scanned);
+
+            const matchId = matchIdFilter(rowId, idText);
+            const matchIp = matchIpFilter(rowIp, ipText);
+            const matchPort = matchNumberFilter(rowPort, portText);
+            const matchService = !serviceText || rowService.includes(serviceText);
+            const matchStatus = !statusText || rowStatus === statusText;
+            const matchTime = matchCreatedFilter(rowScanned, startText, endText);
+
+            row.style.display = matchId && matchIp && matchPort && matchService && matchStatus && matchTime ? "" : "none";
+        });
+    }
+
+    [
+        resultIdInput,
+        resultIpInput,
+        resultPortInput,
+        resultServiceInput,
+        resultStatusInput,
+        resultTimeStartInput,
+        resultTimeEndInput
+    ].forEach(function (input) {
+        input.addEventListener("input", filterResultRows);
+        input.addEventListener("change", filterResultRows);
+    });
+
+    document.querySelector("#select-visible-assets").addEventListener("click", function () {
+        getVisibleAssetRows().forEach(function (row) {
+            row.querySelector(".asset-checkbox").checked = true;
+        });
+    });
+
+    document.querySelector("#unselect-visible-assets").addEventListener("click", function () {
+        getVisibleAssetRows().forEach(function (row) {
+            row.querySelector(".asset-checkbox").checked = false;
+        });
+    });
+
+    document.querySelector("#clear-asset-filters").addEventListener("click", function () {
+        filterIdInput.value = "";
+        filterIpInput.value = "";
+        filterCreatedStartInput.value = "";
+        filterCreatedEndInput.value = "";
+        filterAssetRows();
+    });
+
+    document.querySelector("#clear-result-filters").addEventListener("click", function () {
+        resultIdInput.value = "";
+        resultIpInput.value = "";
+        resultPortInput.value = "";
+        resultServiceInput.value = "";
+        resultStatusInput.value = "";
+        resultTimeStartInput.value = "";
+        resultTimeEndInput.value = "";
+        filterResultRows();
+    });
+
+    document.querySelector("#scan-selected-form").addEventListener("submit", async function (event) {
+        event.preventDefault();
+
+        const selectedIds = Array.from(document.querySelectorAll(".asset-checkbox:checked")).map(function (checkbox) {
+            return checkbox.value;
+        });
+
+        if (selectedIds.length === 0) {
+            alert("请先勾选要扫描的资产。");
+            return;
+        }
+
+        const form = event.target;
+        const formData = new FormData(form);
+        formData.set("selected_asset_ids", selectedIds.join(","));
+
+        showScanProgress(0, "正在启动扫描任务...");
+
+        const response = await fetch("/scan-selected/start", {
+            method: "POST",
+            body: formData
+        });
+        const data = await response.json();
+
+        if (!data.ok) {
+            hideScanProgress();
+            alert(data.message || "扫描启动失败");
+            return;
+        }
+
+        pollScanJob(data.job_id);
+    });
+
+    document.querySelectorAll(".single-scan-form").forEach(function (form) {
+        form.addEventListener("submit", async function (event) {
+            event.preventDefault();
+
+            const formData = new FormData(form);
+            formData.set("selected_asset_ids", form.dataset.assetId);
+
+            showScanProgress(0, "正在启动扫描任务...");
+
+            const response = await fetch("/scan-selected/start", {
+                method: "POST",
+                body: formData
+            });
+            const data = await response.json();
+
+            if (!data.ok) {
+                hideScanProgress();
+                alert(data.message || "扫描启动失败");
+                return;
+            }
+
+            pollScanJob(data.job_id);
+        });
+    });
+
+    function showScanProgress(percent, text) {
+        document.querySelector("#scan-progress-box").style.display = "block";
+        document.querySelector("#scan-progress-bar").style.width = percent + "%";
+        document.querySelector("#scan-progress-text").textContent = text;
+    }
+
+    function hideScanProgress() {
+        document.querySelector("#scan-progress-box").style.display = "none";
+        document.querySelector("#scan-progress-bar").style.width = "0%";
+    }
+
+    async function pollScanJob(jobId) {
+        const response = await fetch("/scan-jobs/" + jobId);
+        const data = await response.json();
+
+        if (!data.ok) {
+            showScanProgress(0, data.message || "扫描任务异常");
+            return;
+        }
+
+        const percent = data.total === 0 ? 100 : Math.round((data.completed / data.total) * 100);
+        showScanProgress(percent, data.message + "（" + percent + "%）");
+
+        if (data.status === "done") {
+            setTimeout(function () {
+                window.location.reload();
+            }, 800);
+            return;
+        }
+
+        if (data.status === "failed") {
+            return;
+        }
+
+        setTimeout(function () {
+            pollScanJob(jobId);
+        }, 500);
+    }
+
+    document.querySelector("#delete-selected-assets").addEventListener("click", async function () {
+        const selectedIds = Array.from(document.querySelectorAll(".asset-checkbox:checked")).map(function (checkbox) {
+            return checkbox.value;
+        });
+
+        if (selectedIds.length === 0) {
+            alert("请先勾选要删除的资产。");
+            return;
+        }
+
+        if (!confirm("确定要删除选中的 " + selectedIds.length + " 个资产吗？关联扫描结果也会一起删除。")) {
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("selected_asset_ids", selectedIds.join(","));
+
+        const response = await fetch("/assets/batch-delete", {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "fetch"
+            },
+            body: formData
+        });
+        const data = await response.json();
+
+        if (!data.ok) {
+            alert(data.message || "批量删除失败");
+            return;
+        }
+
+        data.deleted_ids.forEach(function (assetId) {
+            const assetRow = document.querySelector("#asset-row-" + assetId);
+            if (assetRow) {
+                assetRow.remove();
+            }
+
+            document.querySelectorAll('tr[data-asset-id="' + assetId + '"]').forEach(function (row) {
+                row.remove();
+            });
+        });
+    });
+</script>
+{% endblock %}
