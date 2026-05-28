@@ -223,9 +223,7 @@ python -m uvicorn app.main:app --reload
 
 ## 项目截图
 
-```markdown
 ![首页](docs/images/dashboard.png)
-```
 
 ## 后续优化方向
 
